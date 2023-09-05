@@ -1,0 +1,12 @@
+name: extent_app
+title: extent_app
+username: gibbona1
+account: gibbona1
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 9760761
+bundleId: 7646296
+url: https://gibbona1.shinyapps.io/extent_app/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
