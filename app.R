@@ -2,7 +2,7 @@ pkgload::load_all()
 
 #need to upload at least .shp, .shx, .dbf, .prj files for each
 #so the map knows where to put itself
-map_accepts <- c(".shp", ".dbf", ".sbn", ".sbx", ".shx", ".prj", ".zip")
+map_accepts <- c(".shp", ".dbf", ".sbn", ".sbx", ".shx", ".prj", ".zip", ".geojson")
 #TODO:
 ## UI
 ### (common) legend outside of map and fully visible
@@ -24,8 +24,11 @@ logo_info <- list(
     src  = "https://www.marei.ie/wp-content/uploads/2021/06/Nature-Energy-Project-profile.jpg"),
   "for-es" = list(
     href = "https://www.for-es.ie/",
-    src  = "https://static.wixstatic.com/media/94066f_291a8945f27e4b6e9f455baa3a6d0428~mv2.png/v1/fill/w_140,h_39,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/FOR-ES_Logo-Colour.png")
-  )
+    src  = "https://static.wixstatic.com/media/94066f_291a8945f27e4b6e9f455baa3a6d0428~mv2.png/v1/fill/w_140,h_39,al_c,q_85,usm_0.66_1.00_0.01,enc_auto/FOR-ES_Logo-Colour.png"),
+  "farm-zero-c" = list(
+    href = "https://biorbic.com/farm-zero-c/",
+    src  = "https://biorbic.com/wp-content/uploads/2022/05/Farm-Zero-C-logo-white-no-b_g.png")
+)
 
 
 get_logo <- function(id)
@@ -35,12 +38,12 @@ get_logo <- function(id)
           style = "margin-top: -5px; margin-bottom: -5px; background: #86e36d;")
 
 
-crs_data <- rgdal::make_EPSG()
+crs_data <- read.csv("data/EPSG.csv")
 crs_list <- crs_data$code
 names(crs_list) <- paste(paste0("EPSG:", crs_list), crs_data$note, sep = " - ")
 default_crs     <- 4326
 
-lookup_file <- "data/habitat_codes.csv"
+lookup_file <- "ext_data/habitat_codes.csv"
 
 options(shiny.maxRequestSize = 256 * 1024 ^ 2)
 
@@ -99,10 +102,10 @@ my_spinner <- function(el) withSpinner(el, type = 1, color = "#228B22",
                                        color.background = "#FFFFFF")
 
 ui_nm <- function(id, name, include = TRUE) div(h3(name), 
-                                checkboxInput(paste0("include_", id),
-                                              label = paste("Include", name),
-                                              value = include),
-                                uiOutput(id))
+                                                checkboxInput(paste0("include_", id),
+                                                              label = paste("Include", name),
+                                                              value = include),
+                                                uiOutput(id))
 
 sfdiv  <- function(...) div(..., class = "sfdiv-container")
 sfdivi <- function(...) div(..., class = "sfdiv-item")
@@ -116,13 +119,13 @@ get_sf_path <- function(id, inp){
 
 sfInput <- function(id, name, lab, width = NULL, inp = input){
   sfdivi(id = paste(name, "grp", sep = "_"),
-    fileInput(name, lab, accept = map_accepts, multiple = TRUE, width = width),
-    tags$style("white-space: pre-wrap;"),
-    textInput(paste(name, "name", sep = "_"), NULL, value = get_sf_path(id, inp)),
-    leafletOutput(paste0("plot", id)),
-    uiOutput(paste0("map", id, "col")),
-    checkboxInput(sprintf("map%s_include", id), "Show Map", value = TRUE)
-    )
+         fileInput(name, lab, accept = map_accepts, multiple = TRUE, width = width),
+         tags$style("white-space: pre-wrap;"),
+         textInput(paste(name, "name", sep = "_"), NULL, value = get_sf_path(id, inp)),
+         leafletOutput(paste0("plot", id)),
+         uiOutput(paste0("map", id, "col")),
+         checkboxInput(sprintf("map%s_include", id), "Show Map", value = TRUE)
+  )
 }
 
 extentObj <- function(id, time, b_rnms = TRUE, b_lrow = FALSE) {
@@ -144,39 +147,58 @@ ul    <- tags$ul
 
 uifunc <- function() {
   dashboardPage(
-    header  = dashboardHeader(title      = "Extent Account Creator", 
+    header  = dashboardHeader(title      = div(h3("ExActR", style="margin: 0;"), h5('Extent Account Creator', style="margin: 0;")), 
                               titleWidth = "300px",
                               get_logo("nature-energy"),
-                              get_logo("for-es")
-                              ),
+                              get_logo("for-es"),
+                              get_logo("farm-zero-c")
+    ),
     sidebar = dashboardSidebar(
       tags$head(tags$style(HTML(".sidebar-menu > li {white-space: normal;}"))),
       width = "300px",
       collapsed = TRUE,
       selectizeInput("sel_crs", "Select CRS", choices = NULL, width = "100%"),
       checkboxInput("use_s2", "Use s2 package", value = TRUE),
+      selectInput("plot_ext", "Plot save format", choices = c("png", "jpg", "svg")),
       checkboxInput("show_legend", "Show leaflet legends", value = TRUE),
       actionButton("addTimePoint", 
                    label = "Add Time Point", 
                    icon  = icon("plus-circle"), 
-                   style = 'margin-top:25px; color: white;',
+                   #style = 'margin-top:25px; color: white;',
                    class = "btn-success"),
       actionButton("delTimePoint", 
                    label = "Delete Time Point", 
                    icon  = icon("minus-circle"), 
-                   style = 'margin-top:25px; color: white;',
+                   #style = 'margin-top:25px; color: white;',
                    class = "btn-danger"),
+      downloadButton("bundleResults", 
+                     label = "Download all results", 
+                     style = 'margin-left:15px;',
+                     class = "btn-warning"),
+      tags$script(HTML('
+        $(document).ready(function() {
+          var actionButton = document.getElementById("addTimePoint");
+          var downloadButton = document.getElementById("bundleResults");
+          
+          // Get the computed style of the action button
+          var textColor = window.getComputedStyle(actionButton).color;
+          
+          // Apply the computed text color to the download button
+          downloadButton.style.color = textColor;
+        });
+      ')),
       fileInput("lookupFile", "Upload Lookup table", accept = ".csv"),
       verbatimTextOutput("lookup_file"),
       checkboxInput("use_codes", "Use code lookup", value = FALSE),
-      checkboxInput("use_date", "Use date in plot download filenames", value = FALSE)
+      checkboxInput("use_date", "Use date in plot download filenames", value = FALSE),
+      sliderInput("int_alpha", "Intersection plot unchanged areas opacity", min=0, max=1, step=0.05, value = 0.25)
     ),
     body    = dashboardBody(
-    useShinyjs(),
-    tags$head(
-      tags$link(rel = "stylesheet", type = "text/css", href = "style.css")
-    ),
-    tags$head(tags$script('
+      useShinyjs(),
+      tags$head(
+        tags$link(rel = "stylesheet", type = "text/css", href = "style.css")
+      ),
+      tags$head(tags$script('
         var window_width = 0;
         $(document).on("shiny:connected", function(e) {
             window_width = window.innerWidth;
@@ -187,56 +209,56 @@ uifunc <- function() {
             Shiny.onInputChange("window_width", window_width);
         });
     ')),
-    tabsetPanel(id = "mainTabs",
-      {tabPanel("Extent Account",
-      fluidRow(
-        uiOutput("sf_group"),
-      ),
-      fluidRow(
-       bsCollapse(
-         bsCollapsePanel("Colour mapping",
-                         uiOutput("colour_map")
-                         )
-       )
-      ),
-      fluidRow(
-        column(12,
-        actionButton("gen_extent", "Generate Extent", class = "btn-primary"),        
-        align = "center")
-      ),
-      fluidRow(
-        tags$script(src = "copytable.js"),
-        ui_nm("extentTable_group", "Extent table (Ha)"),
-        ui_nm("extentPercentTable_group", "Extent table (% of opening)"),
-        ui_nm("extentMatrix_group", "Ecosystem Type Change Matrix"),
-        ui_nm("extentPair_group", "Change by group pair", include = FALSE),
-        hr(),
-        tags$script(src = "colourextentdiag.js"),
-        checkboxInput("col_diag", "Colour diagonals of Matrix", value = FALSE),
-        includeHTML("www/notes.html")
+      tabsetPanel(id = "mainTabs",
+                  {tabPanel("Extent Account",
+                            fluidRow(
+                              uiOutput("sf_group"),
+                            ),
+                            fluidRow(
+                              bsCollapse(
+                                bsCollapsePanel("Colour mapping",
+                                                uiOutput("colour_map")
+                                )
+                              )
+                            ),
+                            fluidRow(
+                              column(12,
+                                     actionButton("gen_extent", "Generate Extent", class = "btn-primary"),        
+                                     align = "center")
+                            ),
+                            fluidRow(
+                              tags$script(src = "copytable.js"),
+                              ui_nm("extentTable_group", "Extent table (Ha)"),
+                              ui_nm("extentPercentTable_group", "Extent table (% of opening)"),
+                              ui_nm("extentMatrix_group", "Ecosystem Type Change Matrix"),
+                              ui_nm("extentPair_group", "Change by group pair", include = FALSE),
+                              hr(),
+                              tags$script(src = "colourextentdiag.js"),
+                              checkboxInput("col_diag", "Colour diagonals of Matrix", value = FALSE),
+                              includeHTML("www/notes.html")
+                            )
+                  )},
+                  {tabPanel("Composition Plots",
+                            uiOutput("extentPlots"))},
+                  {tabPanel("Habitat Explorer",
+                            uiOutput("habitatExplorer"))},
+                  {tabPanel("Instructions", 
+                            fluidRow(
+                              tags$ol(
+                                tags$li("Decide on the number of time points you want to use",
+                                        "(use the", tags$b("add/delete time point"), "buttons to adjust this)."),
+                                tags$li("Upload the 2 or more map files", "(upload", 
+                                        lapply(c(".cpg", ".shp", ".dbf", ".prj"), tags$code), "files together for each time point)."),
+                                tags$li("Select the grouping column (e.g.", tags$em("CLC_CODE_2022"), "for each time point."),
+                                tags$li("Toggle secondary options if desired", 
+                                        "(CRS, s2 package, code lookup)."),
+                                tags$li("When ready, click", tags$b("Generate Extent.")),
+                                tags$li("Wait for extent table results.",
+                                        "result plots are in the", tags$b("Composition plots"), "tab.")
+                              )
+                            )
+                  )}
       )
-      )},
-      {tabPanel("Composition Plots",
-                uiOutput("extentPlots"))},
-      {tabPanel("Habitat Explorer",
-                uiOutput("habitatExplorer"))},
-      {tabPanel("Instructions", 
-                fluidRow(
-                  tags$ol(
-                    tags$li("Decide on the number of time points you want to use",
-                            "(use the", tags$b("add/delete time point"), "buttons to adjust this)."),
-                    tags$li("Upload the 2 or more map files", "(upload", 
-                      lapply(c(".cpg", ".shp", ".dbf", ".prj"), tags$code), "files together for each time point)."),
-                    tags$li("Select the grouping column (e.g.", tags$em("CLC_CODE_2022"), "for each time point."),
-                    tags$li("Toggle secondary options if desired", 
-                            "(CRS, s2 package, code lookup)."),
-                    tags$li("When ready, click", tags$b("Generate Extent.")),
-                    tags$li("Wait for extent table results.",
-                            "result plots are in the", tags$b("Composition plots"), "tab.")
-                  )
-                )
-                )}
-    )
     ),
     skin = "green"
   )
@@ -244,20 +266,34 @@ uifunc <- function() {
 
 server <- function(input, output, session) {
   plots  <- reactiveValues()
+  tables <- reactiveValues()
   mapIds <- reactiveVal(1:2)
   sfRaws <- reactiveValues()
   sfs    <- reactiveValues()
   
   plot_names <- reactive({
-    p_names <- c("plotComp", "plotStack", paste0("plotMap", mapIds()))
+    n <- length(mapIds())
+    p_names <- c("plotComp", "plotStack", 
+                 paste0(rep("plotMap", n), mapIds()),
+                 paste0(rep("plotInt", n-1), mapIds()[-1])
+    )
     for(plt in p_names)
       plots[[plt]] <- NULL
     return(p_names)
   })
   
+  tab_names <- reactive({
+    p_ids <- function(nm, ids = mapIds()[-1]) paste(nm, ids, sep = "_")
+    t_names <- c(p_ids("extentTable"), p_ids("extentPercentTable"), 
+                 p_ids("extentMatrix"), p_ids("expTable", ids = mapIds()))
+    for(tab in t_names)
+      tables[[tab]] <- NULL
+    return(t_names)
+  })
+  
   updateSelectizeInput(session, "sel_crs", choices = crs_list, 
                        selected = default_crs, server = TRUE)
-
+  
   #function to read the .shp file and project to the desired coordinate system
   setup_read_sf <- function(shpdf) {
     updir <- dirname(shpdf$datapath[1])
@@ -269,12 +305,17 @@ server <- function(input, output, session) {
     if(any(endsWith(shpdf$name, ".zip"))){
       upfiles   <- unzip(file.path(updir, shpdf$name[1]), exdir = updir)
       tmp_file1 <- upfiles[endsWith(upfiles, ".shp")]
-    } else{
+    } else if(any(endsWith(shpdf$name, ".geojson"))) {
+      tmp_file1 <- file.path(updir, shpdf$name[endsWith(shpdf$name, ".geojson")])
+      #} else if(any(endsWith(shpdf$name, ".tif"))) {
+      #  tmp_file1 <- file.path(updir, shpdf$name[endsWith(shpdf$name, ".tif")])
+      #  return(st_as_sf(stars::read_stars(tmp_file1), merge = TRUE, as_points = FALSE, downsample = 100))
+    } else {
       tmp_file1 <- file.path(updir, shpdf$name[endsWith(shpdf$name, ".shp")])
     }
     return(st_read(tmp_file1, quiet = TRUE))
   }
-
+  
   #to avoid errors, if map intersections return NULLs, just return zero
   blank_zero <- function(x) {
     if(length(x) == 0)
@@ -286,7 +327,7 @@ server <- function(input, output, session) {
   clean_zero <- function(x) replace(x, is.na(x) | is.infinite(x) | abs(x) < 1e-3, 0)
   
   clean_sum <- function(x) x %>% st_area() %>% blank_zero() %>% sum()
-
+  
   #this gets the aggregate changes in each group
   #(start and end areas, and amount increased, decreased, changed)
   change_area <- function(grp, ext_mat){
@@ -295,12 +336,12 @@ server <- function(input, output, session) {
     unchanged_A <- ext_mat[grp, grp]
     c(
       "opening"    = opening_A,
-      "increase"   = sum(ext_mat[, grp]) - closing_A - unchanged_A,
-      "decrease"   = -1*(sum(ext_mat[grp, ]) - opening_A - unchanged_A),
+      "increase"   = closing_A - unchanged_A,
+      "decrease"   = -1*(opening_A - unchanged_A),
       "net change" = closing_A - opening_A,
       "closing"    = closing_A)
   }
-
+  
   #maps are very similar so use a function the data and which column to colour by
   gen_map_leaflet <- function(data, column) {
     p <- leaflet(options = leafletOptions(crs = leafletCRS(code = input$sel_crs))) %>%
@@ -314,13 +355,13 @@ server <- function(input, output, session) {
     if(input$show_legend){
       p <- p %>% 
         addLegend(pal      = plotCols(),
-                values   = code_lookup(data[[column]]),
-                position = "bottomleft",
-                title    = "Code <br>")
+                  values   = code_lookup(data[[column]]),
+                  position = "bottomleft",
+                  title    = "Code <br>")
     }
     return(p)
   }
-
+  
   #extract from a list and suppress  warnings e.g. NAs, geometry issue, for now
   lazy_unlist <- function(x) suppressWarnings(unlist(x))
   
@@ -337,7 +378,7 @@ server <- function(input, output, session) {
       selectizeInput(get_msc(id), "Select Grouping Column", 
                      options = list(dropdownParent = 'body'),
                      choices = names(sfRaws[[id]]))
-      })
+    })
     return()
   }
   
@@ -352,7 +393,17 @@ server <- function(input, output, session) {
   
   chng_time <- function(id)
     sprintf("(%s - %s)", get_sf_name(as.integer(id)-1), get_sf_name(id))
-                                           
+  
+  tab_caption <- function(tab){
+    tab_split <- str_split(tab, "_")[[1]]
+    tname <- tab_split[1]
+    id    <- as.integer(tab_split[2])
+    if(tname == "expTable")
+      return(sprintf("%s: %s", tab, get_sf_name(id)))
+    else
+      return(sprintf("%s: %s - %s", tab, get_sf_name(id-1), get_sf_name(id)))
+  }
+  
   tabtitle <- function(id, nm) return(paste(nm, chng_time(id)))
   
   observeEvent(input$addTimePoint, {
@@ -382,9 +433,9 @@ server <- function(input, output, session) {
     
     do.call(sfdiv, 
             purrr::map(mapIds(),
-              ~ sfInput(.x, sfid(.x), mapTitle(.x), width = width, inp = input)
-              )
+                       ~ sfInput(.x, sfid(.x), mapTitle(.x), width = width, inp = input)
             )
+    )
   })
   
   makeExtent <- function(tabname, brow = TRUE, bcol = FALSE){
@@ -396,7 +447,7 @@ server <- function(input, output, session) {
     do.call(sfdiv, 
             purrr::map(as.character(mapIds()[-1]),
                        ~ sfdivi(h5(tabtitle(.x, tabname)),
-                             extentObj(tabname, .x, brow, bcol))
+                                extentObj(tabname, .x, brow, bcol))
             )
     )
   }
@@ -404,35 +455,38 @@ server <- function(input, output, session) {
   output$extentTable_group <- renderUI({makeExtent("extentTable")})
   
   output$extentPercentTable_group <- renderUI({makeExtent("extentPercentTable")})
-    
+  
   output$extentMatrix_group <- renderUI({makeExtent("extentMatrix")})
   
   output$extentPair_group <- renderUI({makeExtent("extentPair", 
                                                   brow = FALSE, bcol = TRUE)})
-
+  
   # Read shapefiles and render other objects
   observe({
     lapply(as.character(mapIds()), function(id) {
       sf_id <- sfid(id)
       observeEvent(input[[sf_id]], {
-      sfRaws[[id]] <- setup_read_sf(input[[sf_id]])
-      sfs[[id]]    <- sfRaws[[id]] %>% 
-        st_transform(as.numeric(input$sel_crs))
-      
-      #UI with dropdown for grouping of the datasets e.g. habitat codes
-      renderMapSel(id)
+        sfRaws[[id]] <- setup_read_sf(input[[sf_id]])
+        sfs[[id]]    <- sfRaws[[id]] %>% 
+          st_transform(as.numeric(input$sel_crs))
+        
+        #UI with dropdown for grouping of the datasets e.g. habitat codes
+        renderMapSel(id)
       })
     })
   })
   
   observe({
     for(id in mapIds()){
+      coppybttnOutput("expTable", id)
       renderLeafletPlot(id)
       renderMapPlot(id)
       renderExpTable(paste0(id))
     }
+    for(id in mapIds()[-1])
+      renderIntPlot(id)
   })
-
+  
   lookupData <- reactive({
     ifelse(is.null(input$lookupFile), lookup_file, input$lookupFile$datapath) %>%
       read.csv
@@ -441,7 +495,7 @@ server <- function(input, output, session) {
   output$lookup_file <- renderText({
     return(ifelse(is.null(input$lookupFile), lookup_file, input$lookupFile$name))
   })
-
+  
   #if the sf data or selectInput are not ready, wait
   plot_wait <- function(id) 
     return(is.null(input[[sfid(id)]]) | is.null(input[[get_msc(id)]]))
@@ -456,7 +510,7 @@ server <- function(input, output, session) {
       return(vec %>% as.character())
     }
   }
-
+  
   #groups to iterate over for extent account
   codeGroups <- reactive({
     cols <- c()
@@ -469,25 +523,25 @@ server <- function(input, output, session) {
   })
   
   codeGroupsLookup <- reactive({code_lookup(codeGroups())})
-
+  
   output$colour_map <- renderUI({
     code_grp <- codeGroupsLookup()
     if(length(code_grp) == 0)
       return(NULL)
-
+    
     vir_palette <- colorFactor(
       palette = "viridis",
       domain  = code_grp
-      )
+    )
     
     do.call(div, 
             purrr::map(code_grp, 
-                       ~ colourInput(colpicker_id(.x),
-                                     label = .x,
-                                     value = vir_palette(.x)
-                                     )
+                       ~ colourpicker::colourInput(colpicker_id(.x),
+                                                   label = .x,
+                                                   value = vir_palette(.x)
                        )
             )
+    )
   })
   
   #common colour palette between the two maps for easier visualisation of groups
@@ -501,7 +555,7 @@ server <- function(input, output, session) {
       palette <- col_vec
     return(colorFactor(palette = palette, domain = code_grp))
   })
-
+  
   # Render plots
   renderLeafletPlot <- function(id){
     output[[paste0("plot", id)]] <- renderLeaflet({
@@ -514,7 +568,7 @@ server <- function(input, output, session) {
     })
     return()
   }
-
+  
   extentData <- reactive({
     do.call(req, lapply(mapIds(), function(i) input[[get_msc(i)]]))
     
@@ -532,7 +586,7 @@ server <- function(input, output, session) {
     if(id == "1")
       return(y)
     else if(make_numeric)
-        return(as.numeric(n))
+      return(as.numeric(n))
     else
       return(n)
   }
@@ -544,7 +598,7 @@ server <- function(input, output, session) {
       row_df <- data.frame(time   = id,
                            id     = colnames(extent_df),
                            open   = chk1(id, NA, extent_df["opening", ]),
-                           close  = as.numeric(extent_df["closing", ]),
+                           close  = as.numeric(chk1(id, extent_df["opening", ], extent_df["closing", ])),
                            change = chk1(id, NA, extent_df["net change", ]))
       change_df <- rbind(change_df, row_df)
     }
@@ -554,10 +608,11 @@ server <- function(input, output, session) {
   sf_null <- function(i) is.null(input[[sfid(i)]])
   
   renderExtentTable <- function(id){
-    output[[paste("extentTable", id, sep = "_")]] <- renderTable({
+    t_id <- paste("extentTable", id, sep = "_")
+    output[[t_id]] <- renderTable({
       extent_df       <- extentData()[[id]]
       extent_df$Total <- rowSums(extent_df)
-      extent_df <- apply(extent_df, 2, clean_zero)
+      tables[[t_id]] <- extent_df <- apply(extent_df, 2, clean_zero)
       return(extent_df)
     }, rownames = TRUE)
     return()
@@ -565,15 +620,31 @@ server <- function(input, output, session) {
   
   renderExtentPercentTable <- function(id){
     #the change portions can be represented as a percent of the opening
-    output[[paste("extentPercentTable", id, sep = "_")]] <- renderTable({
+    t_id <- paste("extentPercentTable", id, sep = "_")
+    output[[t_id]] <- renderTable({
       extent_df  <- extentData()[[id]]
       df <- as.data.frame(sapply(extent_df, function(x) x[2:4] / x[1]))
       rownames(df) <- rownames(extent_df)[2:4]
-      df <- apply(df, 2, clean_zero)
+      tables[[t_id]] <- df <- apply(df, 2, clean_zero)
       return(df)
     }, rownames = TRUE)
   }
-
+  
+  dfIntersection <- reactive({
+    if(any(sapply(mapIds(), plot_wait)))
+      return(NULL)
+    sf_use_s2(input$use_s2)
+    map_ids <- mapIds()[-1]
+    
+    df_int_list <- lapply(map_ids, function(id) {
+      df1 <- sfs[[paste0(id - 1)]] %>% st_make_valid()
+      df2 <- sfs[[paste0(id)]] %>% st_make_valid()
+      return(st_intersection(df1, df2))
+    })
+    names(df_int_list) <- map_ids
+    return(df_int_list)
+  })
+  
   #A bit more complicated. This now has a matrix where:
   ##diagonals: amounts unchanged between opening and closing in that group
   ##off-diagonals: amount changed from type in the row to type in the column
@@ -586,35 +657,32 @@ server <- function(input, output, session) {
     res_l <- list()
     
     for(id in mapIds()[-1]){
-      df1 <- sfs[[paste0(id - 1)]] %>% st_make_valid()
-      df2 <- sfs[[paste0(id)]] %>% st_make_valid()
-  
       code_grps <- codeGroups()
       
       grp_col1 <- input[[get_msc(id - 1)]]
       grp_col2 <- input[[get_msc(id)]]
       
       #I think it's faster to intersect everything up front and then lookup
-      df_int <- st_intersection(df1, df2)
+      df_int <- dfIntersection()[[paste0(id)]]
       
       cross_mat <- do.call(rbind, 
-              lapply(code_grps, function(grp1) {
-                res <- sapply(code_grps, function(grp2) {
-                  df_int %>%
-                    filter((df_int[[grp_col1]] == grp1) &
-                           (df_int[[grp_col2]] == grp2)) %>%
-                    st_make_valid() %>% clean_sum() %>% lazy_unlist()
-                })
-                return(res)
-              })
+                           lapply(code_grps, function(grp1) {
+                             res <- sapply(code_grps, function(grp2) {
+                               df_int %>%
+                                 filter((df_int[[grp_col1]] == grp1) &
+                                          (df_int[[grp_col2]] == grp2)) %>%
+                                 st_make_valid() %>% clean_sum() %>% lazy_unlist()
+                             })
+                             return(res)
+                           })
       )
       
       rownames(cross_mat) <- colnames(cross_mat) <- code_grps
-    
+      
       cross_mat <- cross_mat / 10^4
-  
+      
       cross_df  <- as.data.frame(cross_mat)
-  
+      
       cross_df$openings      <- rowSums(cross_df)
       cross_df["closings", ] <- colSums(cross_df)
       
@@ -622,13 +690,15 @@ server <- function(input, output, session) {
     }
     return(res_l)
   })
-
+  
   renderExtentMatrix <- function(id){
-    output[[paste("extentMatrix", id, sep = "_")]] <- renderTable({
+    t_id <- paste("extentMatrix", id, sep = "_")
+    output[[t_id]] <- renderTable({
       code_grps <- codeGroupsLookup()
       ext_mat <- extentMat()[[id]]
       colnames(ext_mat)[1:length(code_grps)] <- code_grps
       rownames(ext_mat)[1:length(code_grps)] <- code_grps
+      tables[[t_id]] <- ext_mat
       return(ext_mat)
     }, rownames = TRUE)
   }
@@ -640,7 +710,7 @@ server <- function(input, output, session) {
       
       pair_df <- expand.grid(from = code_grp, to = code_grp)
       pair_df <- pair_df[pair_df$from != pair_df$to,]
-
+      
       res <- sapply(1:nrow(pair_df), function(i) {
         from <- pair_df[i, "from"]
         to   <- pair_df[i, "to"]
@@ -663,7 +733,7 @@ server <- function(input, output, session) {
   }
   
   render_copybttns <- function(id, time){
-    if(!input$gen_extent)
+    if(any(sapply(mapIds(), plot_wait)))
       return(NULL)
     return(copy_button_group(id, time))
   }
@@ -750,6 +820,33 @@ server <- function(input, output, session) {
     print(p)
   }
   
+  plot_intersection <- function(data, cols, name, alpha){
+    data_chg  <- data %>% filter(data[[cols[1]]] != data[[cols[2]]])
+    data_same <- data %>% filter(data[[cols[1]]] == data[[cols[2]]])
+    
+    make_long <- function(df){
+      df %>% 
+        tidyr::pivot_longer(all_of(cols), names_to = "group", values_to = "group_val") %>%
+        mutate(group_val = code_lookup(.data[["group_val"]])) %>%
+        arrange(group_val)
+    }
+    
+    data_chg_long  <- data_chg %>% make_long()
+    data_same_long <- data_same %>% make_long()
+    
+    col_map <- unique(plotCols()(data_chg_long$group_val))
+    p <- ggplot(data_chg_long, aes(fill = group_val)) +
+      geom_sf(color = NA) +
+      geom_sf(fill = "#666666", alpha = alpha, data = data_same_long, color = NA) +
+      labs(title = name,
+           fill  = "Ecosystem Type") + 
+      theme_bw() + 
+      scale_fill_manual(values = col_map) +
+      coord_sf(crs = as.numeric(input$sel_crs)) +
+      facet_wrap(vars(group))
+    print(p)
+  }
+  
   renderMapPlot <- function(id){
     m_id <- paste0("plotMap", id)
     output[[m_id]] <- renderPlot({
@@ -761,11 +858,25 @@ server <- function(input, output, session) {
     return()
   }
   
-  render_download_bttn <- function(id, resize = TRUE, use_date = FALSE){
+  renderIntPlot <- function(id){
+    m_id <- paste0("plotInt", id)
+    output[[m_id]] <- renderPlot({
+      code_grps <- codeGroups()
+      
+      grp_col1 <- input[[get_msc(id - 1)]]
+      grp_col2 <- input[[get_msc(id)]]
+      df_int <- dfIntersection()[[paste0(id)]] 
+      plt_title <- paste("Areas changed over time", chng_time(id))
+      p <- plots[[m_id]] <- plot_intersection(df_int, c(grp_col1, grp_col2), plt_title, input$int_alpha)
+      print(p)
+    })
+  }
+  
+  render_download_bttn <- function(id, resize = TRUE, use_date = FALSE, ext = input$plot_ext){
     downloadHandler(
-      filename = function() paste0(id, ifelse(use_date, paste0('-', Sys.Date()), ""), '.png'),
+      filename = function() paste0(id, ifelse(use_date, paste0('-', Sys.Date()), ""), '.', input$plot_ext),
       content  = function(con) {
-        if(resize){
+        if(resize & (ext != "svg")){
           # get image code from URI
           img_src <- gsub("data:.+base64,", "", input[[paste0(id, "_img_src")]])
           # decode the image code into the image
@@ -787,6 +898,9 @@ server <- function(input, output, session) {
   observe({
     for(plt in plot_names())
       downloadPlotOutput(plt)
+    for(tab in tab_names()){
+      #do nothing
+    }
   })
   
   output$habitatExplorer <- renderUI({
@@ -798,8 +912,10 @@ server <- function(input, output, session) {
                        ~ div(h3(sprintf("%s Data (%s) - %s", 
                                         map_oc(.x, mapIds()), .x, 
                                         get_sf_name(.x))),
-                             tableOutput(paste0("expTable", .x))))
-            )
+                             tableOutput(paste("expTable", .x, sep = "_")),
+                             uiOutput(paste("copybttn", "expTable", .x, sep = "_"))
+                       ))
+    )
   })
   
   get_explore_table <- function(time, col, df){
@@ -814,23 +930,69 @@ server <- function(input, output, session) {
   }
   
   renderExpTable <- function(id){
-    output[[paste0("expTable", id)]] <- renderTable({
+    t_id <- paste("expTable", id, sep = "_")
+    output[[t_id]] <- renderTable({
       col  <- ifelse(id == "1", "open", "close")
       time <- ifelse(id == "1", "2", id)
-      return(get_explore_table(time, col, changeData()))
+      tables[[t_id]] <- df <- get_explore_table(time, col, changeData())
+      return(df)
     }, sanitize.text.function = function(x) x)
     return()
   }
   
   observeEvent(input$col_diag, {
-      for(id in mapIds()[-1]){
-        diag_col <- ""
-        ext_id   <- paste("extentMatrix", id, sep = "_")
-        if(input$col_diag)
-          diag_col <- "rgba(255, 255, 145, 0.5)"
-        runjs(sprintf("colourExtentDiag('%s', '%s')", ext_id, diag_col))
-      }
+    for(id in mapIds()[-1]){
+      diag_col <- ""
+      ext_id   <- paste("extentMatrix", id, sep = "_")
+      if(input$col_diag)
+        diag_col <- "rgba(255, 255, 145, 0.5)"
+      runjs(sprintf("colourExtentDiag('%s', '%s')", ext_id, diag_col))
+    }
   })
+  
+  output$bundleResults <- downloadHandler(
+    filename = function() paste0("bundleData-", Sys.Date(), ".zip"),
+    content  = function(con) {
+      temp_dir <- tempdir()
+      setwd(tempdir())
+      
+      download_table <- function(tab){
+        tab_df <- tables[[tab]]
+        if(is.null(tab_df))
+          return()
+        if(startsWith(tab, "expTab")){
+          colnames(tab_df)[2] <- "Area (m\\textsuperscript{2})"
+          colnames(tab_df)[4] <- "\\% Coverage"
+          tab_df <- tab_df[,-2]
+          tab_rownames <- FALSE
+        } else {
+          tab_rownames <- TRUE
+        }
+        write.csv(tab_df, paste0(tab, ".csv"))
+        write.table(tab_df, paste0(tab, ".txt"))
+        print(xtable::xtable(tab_df, caption = str_replace_all(tab_caption(tab), "_", "\\\\_")), 
+              type = "latex", file = paste0(tab, ".tex"), 
+              sanitize.text.function = identity, include.rownames=tab_rownames)
+      }
+      
+      #tables in latex, text and HTML format
+      for(tab in tab_names())
+        download_table(tab)
+      
+      #plots in png and pdf format
+      for(plt in plot_names()){
+        if(is.null(plots[[plt]]))
+          next
+        for(ext in c(".jpg", ".png", ".svg", ".pdf")){
+          ggsave(paste0(plt, ext), plots[[plt]])
+        }
+      }
+      
+      #might need to save Rdata or log (at least inputs)
+      z_files <- list.files(pattern = "\\.(pdf|png|svg|jpg|html|txt|tex)$")
+      
+      zip(zipfile = con, files = z_files)
+    }, contentType = "application/zip")
 }
 
 shinyApp(uifunc(), server)
