@@ -5,7 +5,7 @@ account: gibbona1
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 9760761
-bundleId: 7646296
+bundleId: 8212659
 url: https://gibbona1.shinyapps.io/extent_app/
 version: 1
 asMultiple: FALSE
